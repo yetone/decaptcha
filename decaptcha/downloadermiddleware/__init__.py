@@ -1,0 +1,2 @@
+class BaseDecaptchaMiddleware(object):
+    pass
