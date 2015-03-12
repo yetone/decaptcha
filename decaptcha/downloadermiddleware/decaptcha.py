@@ -1,6 +1,6 @@
 """Stub for implementing DeathByCaptcha service"""
 
-from scrapy import log
+from scrapy import log, signals
 from scrapy.exceptions import IgnoreRequest, NotConfigured
 from scrapy.utils.misc import load_object
 from twisted.internet.defer import maybeDeferred
@@ -22,7 +22,7 @@ class DecaptchaMiddleware(object):
             self.settings.getlist('DECAPTCHA_SOLVER')
         )[:1] or [None]
         self.enabled = self.settings.getbool('DECAPTCHA_ENABLED')
-        self.solving = False
+        self.paused = False
         self.queue = []
         if not self.enabled:
             raise NotConfigured('Please set DECAPTCHA_ENABLED to True')
@@ -30,11 +30,13 @@ class DecaptchaMiddleware(object):
             raise NotConfigured('No valid DECAPTCHA_SOLVER provided')
         if not self.engines:
             raise NotConfigured('No valid DECAPTCHA_ENGINES provided')
+        crawler.signals.connect(self.spider_closed,
+                                signal=signals.spider_closed)
 
     def process_request(self, request, spider):
         if request.meta.get('captcha_request', False):
             return
-        if self.solving:
+        if self.paused:
             self.queue.append((request, spider))
             raise IgnoreRequest('Crawling paused, because CAPTCHA is '
                                 'being solved')
@@ -42,12 +44,16 @@ class DecaptchaMiddleware(object):
     def process_response(self, request, response, spider):
         if request.meta.get('captcha_request', False):
             return response
+        if self.paused:
+            self.queue.append((request, spider))
+            raise IgnoreRequest('Crawling paused, because CAPTCHA is '
+                                'being solved')
         # A hack to have access to .meta attribute in engines and solvers
         response.request = request
         for engine in self.engines:
             if engine.has_captcha(response):
                 log.msg('CAPTCHA detected, getting CAPTCHA image')
-                self.solving = True
+                self.pause_crawling()
                 self.queue.append((request, spider))
                 dfd = maybeDeferred(engine.handle_captcha,
                                     response=response, solver=self.solver)
@@ -56,13 +62,26 @@ class DecaptchaMiddleware(object):
                                     'was detected')
         return response
 
-    def captcha_handled(self, _):
-        log.msg('CAPTCHA handled, resuming crawling')
-        self.solving = False
+    def pause_crawling(self):
+        self.paused = True
+
+    def resume_crawling(self):
+        self.paused = False
         for request, spider in self.queue:
             request.dont_filter = True
             self.crawler.engine.crawl(request, spider)
         self.queue[:] = []
+
+    def spider_closed(self):
+        self.resume_crawling()
+
+    def captcha_handled(self, _):
+        log.msg('CAPTCHA handled, resuming crawling')
+        self.resume_crawling()
+
+    def captcha_handle_error(self, failure):
+        log.msg('CAPTCHA handle error: {}'.format(failure))
+        self.resume_crawling()
 
     def _load_objects(self, classpaths):
         objs = []

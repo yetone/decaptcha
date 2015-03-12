@@ -36,7 +36,8 @@ class DeathbycaptchaSolver(object):
         poll_url = response.url
         for retry in xrange(self.poll_times):
             poll_request = scrapy.Request(poll_url, dont_filter=True,
-                                          headers={'Accept': 'application/json'})
+                                          headers={'Accept':
+                                                   'application/json'})
             poll_response = yield download(self.crawler, poll_request)
             poll_data = json.loads(poll_response.body)
             if poll_data['is_correct'] is False:
