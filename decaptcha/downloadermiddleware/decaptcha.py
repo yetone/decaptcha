@@ -30,8 +30,8 @@ class DecaptchaMiddleware(object):
             raise NotConfigured('No valid DECAPTCHA_SOLVER provided')
         if not self.engines:
             raise NotConfigured('No valid DECAPTCHA_ENGINES provided')
-        crawler.signals.connect(self.spider_closed,
-                                signal=signals.spider_closed)
+        crawler.signals.connect(self.spider_idle,
+                                signal=signals.spider_idle)
 
     def process_request(self, request, spider):
         if request.meta.get('captcha_request', False):
@@ -58,6 +58,7 @@ class DecaptchaMiddleware(object):
                 dfd = maybeDeferred(engine.handle_captcha,
                                     response=response, solver=self.solver)
                 dfd.addCallback(self.captcha_handled)
+                dfd.addErrback(self.captcha_handle_error)
                 raise IgnoreRequest('Response ignored, because CAPTCHA '
                                     'was detected')
         return response
@@ -72,7 +73,7 @@ class DecaptchaMiddleware(object):
             self.crawler.engine.crawl(request, spider)
         self.queue[:] = []
 
-    def spider_closed(self):
+    def spider_idle(self):
         self.resume_crawling()
 
     def captcha_handled(self, _):
