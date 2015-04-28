@@ -39,7 +39,13 @@ class DeathbycaptchaSolver(object):
                                           headers={'Accept':
                                                    'application/json'})
             poll_response = yield download(self.crawler, poll_request)
-            poll_data = json.loads(poll_response.body)
+            try:
+                poll_data = json.loads(poll_response.body)
+            except ValueError:
+                raise CaptchaIncorrectlySolved('Deathbycaptcha returned '
+                                               'non-JSON response ({}): {}'
+                                               .format(poll_response.status,
+                                                       poll_response.body))
             if poll_data['is_correct'] is False:
                 raise CaptchaIncorrectlySolved('Deathbycaptcha returned '
                                                'is_correct=false')
